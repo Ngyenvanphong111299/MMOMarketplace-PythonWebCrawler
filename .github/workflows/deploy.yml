@@ -87,6 +87,6 @@ jobs:
             echo "Pulling latest Docker image..."
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
             echo "Restarting container..."
-            docker compose -f /root/Vps/docker-compose.yml up -d python-webscraping
+            docker compose -f docker-compose.yml up -d
             echo "Deployment complete!"
 
