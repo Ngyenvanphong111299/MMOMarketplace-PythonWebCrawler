@@ -378,11 +378,16 @@ def check_and_run_listing():
 
 
 @app.get("/api/listings")
-async def get_listings(type: str = Query(..., description="Loại source (ví dụ: openai.com, techcrunch.com, anthropic.com)")):
+async def get_listings(
+    type: str = Query(..., description="Loại source (ví dụ: openai.com, techcrunch.com, anthropic.com)"),
+    api_key_verified: bool = Depends(verify_api_key_header)
+):
     """
     Lấy danh sách listings từ file JSON
     Query params:
     - type: Loại source (ví dụ: 'openai.com', 'techcrunch.com', 'anthropic.com', 'adobe.com')
+    
+    Yêu cầu: API key trong header X-API-Key
     """
     config = get_source_config(type)
     if not config:

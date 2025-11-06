@@ -1,5 +1,20 @@
 # Hướng dẫn sử dụng Docker
 
+## 🚀 Quick Start
+
+### Sử dụng Docker Compose (Khuyến nghị)
+```bash
+docker-compose up -d
+```
+
+### Sử dụng Docker thông thường
+```bash
+docker build -t python-web-scraping:latest .
+docker run -d --name python-web-scraping -p 8000:8000 \
+  -v $(pwd)/mycrawler/data:/app/mycrawler/data \
+  python-web-scraping:latest
+```
+
 ## Yêu cầu
 - Docker >= 20.10
 - Docker Compose >= 2.0 (hoặc cài đặt riêng)
