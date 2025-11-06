@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  web-scraping-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: python-web-scraping
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount thư mục data để persist data giữa các lần chạy
+      - ./mycrawler/data:/app/mycrawler/data
+      # Mount thư mục code để development (optional, comment nếu không cần hot reload)
+      # - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

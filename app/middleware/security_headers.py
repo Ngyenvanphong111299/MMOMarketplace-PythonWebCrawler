@@ -1,0 +1,50 @@
+"""
+Security Headers Middleware
+Thêm các security headers vào response
+"""
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from app.config import settings
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware để thêm security headers vào response
+    """
+    
+    async def dispatch(self, request: Request, call_next):
+        """Xử lý request và thêm security headers"""
+        response: Response = await call_next(request)
+        
+        # Chỉ thêm headers nếu được bật
+        if not settings.SECURITY_HEADERS_ENABLED:
+            return response
+        
+        # Security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Content Security Policy (CSP) - cho phép Swagger UI
+        if request.url.path.startswith("/docs") or request.url.path.startswith("/redoc"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "font-src 'self' data:;"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline';"
+            )
+        
+        # HTTPS Strict Transport Security (HSTS) - chỉ trong production với HTTPS
+        # if request.url.scheme == "https":
+        #     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+        return response

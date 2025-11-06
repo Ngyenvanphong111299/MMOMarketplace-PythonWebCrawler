@@ -1,0 +1,247 @@
+# Cursor Rules - Python Web Scraping Project
+
+## Tổng quan dự án
+Dự án này là một hệ thống web scraping sử dụng Scrapy framework kết hợp với FastAPI để tạo REST API. 
+Hệ thống sử dụng Playwright để crawl các trang web có JavaScript rendering.
+
+## Ngôn ngữ và Framework
+- **Python 3.x**: Ngôn ngữ chính
+- **Scrapy**: Framework chính cho web scraping
+- **FastAPI**: Framework cho REST API
+- **Playwright**: Để xử lý JavaScript rendering
+- **Pydantic**: Cho data validation
+
+## Cấu trúc dự án
+```
+python-webScraping/
+├── app.py                    # FastAPI application
+├── requirements-api.txt      # Python dependencies
+├── mycrawler/               # Scrapy project
+│   ├── scrapy.cfg
+│   └── mycrawler/
+│       ├── settings.py      # Scrapy settings
+│       ├── items.py         # Item definitions
+│       ├── pipelines.py     # Item pipelines
+│       ├── middlewares.py   # Middlewares
+│       └── spiders/         # Spider definitions
+│           ├── OpenAI/      # OpenAI spiders
+│           └── TechCrunch/  # TechCrunch spiders
+│       └── data/            # Output data (JSON files)
+```
+
+## Quy tắc Code
+
+### 1. Python Coding Standards
+- Tuân thủ **PEP 8** coding style
+- Sử dụng **type hints** cho function parameters và return types
+- Sử dụng **docstrings** cho tất cả classes và functions (format Google style)
+- Tên biến và functions: **snake_case**
+- Tên classes: **PascalCase**
+- Constants: **UPPER_SNAKE_CASE**
+
+### 2. Scrapy Best Practices
+
+#### Spiders
+- Mỗi spider phải có `name` attribute duy nhất
+- Sử dụng `custom_settings` để override settings cho từng spider
+- Implement `start()` method cho async spiders
+- Sử dụng `_extract_*` methods cho các extraction logic (private methods)
+- Logging: sử dụng `self.logger.info()`, `self.logger.warning()`, `self.logger.error()`
+- Validation: kiểm tra dữ liệu trước khi yield items
+
+#### Items
+- Sử dụng `scrapy.Item` với `scrapy.Field()` để định nghĩa structure
+- Đặt tên fields rõ ràng, descriptive
+- Document các fields trong comments
+
+#### Settings
+- Cấu hình `DOWNLOAD_DELAY` và `CONCURRENT_REQUESTS_PER_DOMAIN` để tránh rate limiting
+- Sử dụng `FEED_EXPORT_ENCODING = "utf-8"` cho JSON exports
+- Cấu hình Playwright settings trong settings.py
+
+#### Playwright Integration
+- Sử dụng `PageMethod` để wait cho page load
+- Sử dụng `wait_for_load_state("networkidle")` cho JavaScript-heavy pages
+- Thêm timeout phù hợp cho mỗi page method
+- Cấu hình `PLAYWRIGHT_LAUNCH_OPTIONS` với headless mode
+
+### 3. FastAPI Best Practices
+
+#### API Design
+- Sử dụng **Pydantic models** cho request/response validation
+- Sử dụng **async/await** cho I/O operations
+- HTTP status codes: 200 (success), 400 (bad request), 404 (not found), 500 (server error)
+- Error handling: sử dụng `HTTPException` với messages rõ ràng bằng tiếng Việt
+
+#### Endpoints
+- Naming: `/api/resource-name` format
+- Query parameters: sử dụng `Query()` với descriptions
+- Request body: sử dụng Pydantic `BaseModel`
+- Response: sử dụng `JSONResponse` với structure nhất quán
+
+#### Error Handling
+- Try-except blocks cho tất cả operations có thể fail
+- Log errors với thông tin chi tiết
+- Return error messages rõ ràng, user-friendly bằng tiếng Việt
+
+### 4. Code Organization
+
+#### Functions và Methods
+- Mỗi function/method chỉ làm một việc (Single Responsibility)
+- Tên function phải mô tả rõ chức năng
+- Sử dụng helper methods cho logic phức tạp (prefix `_` cho private methods)
+
+#### Comments và Documentation
+- Comments bằng **tiếng Việt** cho business logic
+- Docstrings cho tất cả public functions và classes
+- Inline comments cho logic phức tạp hoặc non-obvious
+
+#### Data Extraction Strategy
+- Sử dụng multiple strategies (fallback) cho extraction
+- Thứ tự ưu tiên: specific selectors → meta tags → generic selectors
+- Validate và clean data sau khi extract
+- Handle edge cases: missing data, empty strings, None values
+
+### 5. File Naming và Structure
+
+#### Spiders
+- Mỗi spider trong thư mục riêng: `spiders/{SourceName}/`
+- File naming: `{source}-{type}_spider.py` (ví dụ: `openai-com-detail_spider.py`)
+- Mỗi thư mục spider có `__init__.py`
+
+#### Data Output
+- Output files trong `data/{SourceName}/` directory
+- Naming: `{source}-{type}.json` (ví dụ: `openai-com-detail.json`)
+- Sử dụng `FEEDS` trong `custom_settings` để define output path
+
+### 6. Error Handling và Logging
+
+#### Logging Levels
+- `INFO`: Normal operations, successful crawls
+- `WARNING`: Missing data, edge cases handled
+- `ERROR`: Failures, exceptions
+
+#### Exception Handling
+- Catch specific exceptions khi có thể
+- Log exception details với context
+- Return meaningful error messages
+- Không để exceptions unhandled
+
+### 7. Performance và Optimization
+
+#### Scrapy Performance
+- Sử dụng `CONCURRENT_REQUESTS_PER_DOMAIN` phù hợp
+- Cấu hình `DOWNLOAD_DELAY` để respect server
+- Sử dụng `AUTOTHROTTLE` nếu cần dynamic throttling
+- Cache responses khi có thể (HTTPCACHE)
+
+#### FastAPI Performance
+- Sử dụng async/await cho I/O operations
+- Timeout cho long-running operations (subprocess calls)
+- Error handling cho timeout scenarios
+
+### 8. Data Validation và Cleaning
+
+#### Extraction
+- Validate extracted data trước khi yield
+- Clean data: strip whitespace, normalize text
+- Handle None/empty values appropriately
+- Remove duplicates khi cần
+
+#### API Validation
+- Sử dụng Pydantic models cho validation
+- Validate URLs trước khi crawl
+- Check file existence trước khi read
+- Handle JSON parsing errors
+
+### 9. Security và Best Practices
+
+#### Web Scraping Ethics
+- Respect `robots.txt` (có thể override nếu cần)
+- Set appropriate `USER_AGENT`
+- Implement rate limiting
+- Không crawl quá thường xuyên
+
+#### API Security
+- Validate input từ users
+- Sanitize URLs trước khi crawl
+- Handle malicious inputs
+- Timeout cho subprocess calls
+
+### 10. Code Examples
+
+#### Spider Structure
+```python
+class ExampleSpider(scrapy.Spider):
+    name = "example-spider"
+    
+    custom_settings = {
+        'FEEDS': {
+            'data/Example/example.json': {
+                'format': 'json',
+                'encoding': 'utf-8',
+                'overwrite': True,
+            },
+        },
+    }
+    
+    async def start(self):
+        # Start logic
+        pass
+    
+    def parse(self, response):
+        # Parse logic
+        item = MycrawlerItem()
+        # Extract and validate
+        yield item
+    
+    def _extract_field(self, response):
+        # Extraction logic with fallback strategies
+        pass
+```
+
+#### FastAPI Endpoint
+```python
+@app.get("/api/endpoint")
+async def endpoint(param: str = Query(...)):
+    """Mô tả endpoint"""
+    try:
+        # Logic
+        return JSONResponse(content={"success": True, "data": data})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi: {str(e)}")
+```
+
+## Quy tắc đặc biệt
+
+1. **Luôn implement, không chỉ đưa ra ý tưởng**: Code phải hoàn chỉnh, không có TODO hoặc placeholders
+2. **Comments bằng tiếng Việt**: Tất cả comments và docstrings bằng tiếng Việt
+3. **Không sử dụng script để bulk action**: Tránh các script automation không cần thiết
+4. **Error messages bằng tiếng Việt**: Tất cả error messages hiển thị cho user bằng tiếng Việt
+5. **Validation**: Luôn validate input và output data
+6. **Logging**: Log đầy đủ thông tin cho debugging
+7. **Testing**: Test spiders và API endpoints trước khi commit
+
+## Dependencies Management
+
+- Sử dụng `requirements-api.txt` cho FastAPI dependencies
+- Sử dụng `requirements.txt` (nếu có) cho Scrapy dependencies
+- Pin versions cụ thể cho production
+- Document dependencies trong comments nếu cần
+
+## Git và Version Control
+
+- Commit messages rõ ràng, mô tả changes
+- Không commit data files lớn (JSON outputs)
+- Ignore `__pycache__/`, `*.pyc`, `.env` files
+- Structure commits theo feature/fix
+
+## Tài liệu tham khảo
+
+- Scrapy Documentation: https://docs.scrapy.org/
+- FastAPI Documentation: https://fastapi.tiangolo.com/
+- Playwright for Scrapy: https://github.com/scrapy-plugins/scrapy-playwright
+- PEP 8: https://pep8.org/
+
+
+
