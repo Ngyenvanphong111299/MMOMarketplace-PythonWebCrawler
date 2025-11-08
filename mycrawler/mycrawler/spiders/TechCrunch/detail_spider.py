@@ -2,6 +2,7 @@ import scrapy
 from scrapy_playwright.page import PageMethod
 from ...items import MycrawlerItem
 import re
+from lxml import html
 
 
 class TechCrunchDetailSpider(scrapy.Spider):
@@ -58,10 +59,17 @@ class TechCrunchDetailSpider(scrapy.Spider):
         description = self._extract_description(response)
         item["description"] = description
         
-        # Extract content
-        content = self._extract_content(response)
-        item["content"] = content
-        item["content_length"] = len(content) if content else 0
+        # Extract content với đánh dấu vị trí ảnh
+        content_result = self._extract_content(response)
+        if content_result:
+            content, images = content_result
+            item["content"] = content
+            item["content_length"] = len(content) if content else 0
+            item["images"] = images
+        else:
+            item["content"] = None
+            item["content_length"] = 0
+            item["images"] = None
         
         # Extract authors
         authors = self._extract_authors(response)
@@ -74,10 +82,6 @@ class TechCrunchDetailSpider(scrapy.Spider):
         # Extract tags
         tags = self._extract_tags(response)
         item["tags"] = tags
-        
-        # Extract images
-        images = self._extract_images(response)
-        item["images"] = images
         
         if title:
             self.logger.info("✅ Crawled detail page: %s", title)
@@ -141,81 +145,106 @@ class TechCrunchDetailSpider(scrapy.Spider):
         return None
     
     def _extract_content(self, response):
-        """Extract nội dung chính từ detail page"""
-        # Tìm main content area - sử dụng nhiều strategy để lấy toàn bộ content
+        """Extract nội dung chính từ detail page với đánh dấu vị trí ảnh
         
-        content_text = None
-        
-        # Strategy 1: Tìm main content container và lấy tất cả text trong đó
-        # TechCrunch thường sử dụng article tag hoặc div với class article-content
-        main_content_xpaths = [
-            "//article//div[contains(@class, 'article-content')]//text()[normalize-space()]",
-            "//article//div[contains(@class, 'entry-content')]//text()[normalize-space()]",
-            "//main//article//text()[normalize-space()]",
-            "//article//text()[normalize-space()]",
-            "//main//div[contains(@class, 'content')]//text()[normalize-space()]",
-            "//div[contains(@class, 'article-content')]//text()[normalize-space()]",
+        Returns:
+            tuple: (content_with_placeholders, images_in_order) hoặc None
+        """
+        # Tìm main content container
+        content_container = None
+        content_selectors = [
+            "article div[class*='article-content']",
+            "article div[class*='entry-content']",
+            "main article",
+            "article",
+            "main div[class*='content']",
+            "div[class*='article-content']",
         ]
         
-        for xpath in main_content_xpaths:
-            texts = response.xpath(xpath).getall()
-            if texts and len(texts) > 3:  # Có ít nhất 3 text nodes
-                # Lọc bỏ các text quá ngắn (có thể là navigation, button text)
-                filtered_texts = [t.strip() for t in texts if t.strip() and len(t.strip()) > 5]
-                if filtered_texts:
-                    content_text = "\n\n".join(filtered_texts)
+        for selector in content_selectors:
+            container = response.css(selector).get()
+            if container:
+                # Kiểm tra xem container có đủ nội dung không
+                container_text = response.css(selector + " ::text").getall()
+                if container_text and len([t.strip() for t in container_text if t.strip() and len(t.strip()) > 5]) > 3:
+                    content_container = container
                     break
         
-        # Strategy 2: Nếu không tìm được bằng XPath, thử CSS selector
-        if not content_text or len(content_text) < 100:
-            # Tìm tất cả paragraphs và headings trong main content
-            content_selectors = [
-                "article .article-content p::text, article .article-content h1::text, article .article-content h2::text, article .article-content h3::text",
-                "article .entry-content p::text, article .entry-content h1::text, article .entry-content h2::text, article .entry-content h3::text",
-                "article p::text, article h1::text, article h2::text, article h3::text, article h4::text, article h5::text, article h6::text",
-                "main article p::text, main article h1::text, main article h2::text, main article h3::text",
-                "main p::text, main h1::text, main h2::text, main h3::text",
-            ]
-            
-            for selector in content_selectors:
-                elements = response.css(selector).getall()
-                if elements:
-                    content_parts = [e.strip() for e in elements if e.strip() and len(e.strip()) > 5]
-                    if content_parts and len("\n\n".join(content_parts)) > 100:
-                        content_text = "\n\n".join(content_parts)
-                        break
+        if not content_container:
+            return None
         
-        # Strategy 3: Nếu vẫn chưa có, thử lấy tất cả text từ body (loại bỏ script, style, nav, footer)
-        if not content_text or len(content_text) < 100:
-            # Lấy text từ body nhưng loại bỏ các phần không phải content
-            body_text = response.xpath("//body//text()[normalize-space()]").getall()
-            if body_text:
-                # Lọc bỏ các text từ script, style, nav, footer, header
-                filtered_body = []
-                for text in body_text:
-                    text = text.strip()
-                    if text and len(text) > 10:  # Chỉ lấy text dài hơn 10 ký tự
-                        # Loại bỏ các text có vẻ như navigation hoặc metadata
-                        if not any(skip in text.lower() for skip in ['skip', 'menu', 'navigation', 'footer', 'cookie', 'privacy', 'terms', 'subscribe', 'newsletter']):
-                            filtered_body.append(text)
+        # Parse HTML của content container
+        try:
+            tree = html.fromstring(content_container)
+        except Exception as e:
+            self.logger.warning(f"Không thể parse HTML content container: {e}")
+            return None
+        
+        # Duyệt qua các phần tử theo thứ tự và extract content với đánh dấu ảnh
+        content_parts = []
+        images = []
+        image_counter = 1
+        seen_image_urls = set()
+        
+        def process_element(element):
+            """Recursive function để process element và children theo thứ tự"""
+            nonlocal image_counter
+            
+            # Bỏ qua comment nodes
+            if element.tag is html.HtmlComment:
+                return
+            
+            # Xử lý text trước element (text node đầu tiên)
+            if element.text:
+                text = element.text.strip()
+                if text and len(text) > 0:
+                    content_parts.append(text)
+            
+            # Xử lý children theo thứ tự
+            for child in element:
+                if child.tag == 'img':
+                    # Xử lý ảnh: thay thế bằng placeholder
+                    img_url = child.get('src') or child.get('data-src') or child.get('data-lazy-src')
+                    if img_url:
+                        full_url = response.urljoin(img_url)
+                        # Chỉ thêm nếu chưa thấy (tránh trùng lặp)
+                        if full_url not in seen_image_urls:
+                            seen_image_urls.add(full_url)
+                            images.append(full_url)
+                            content_parts.append(f"{{{{IMAGE_{image_counter}}}}}")
+                            image_counter += 1
+                else:
+                    # Xử lý các element khác (recursive)
+                    process_element(child)
                 
-                if filtered_body:
-                    content_text = "\n\n".join(filtered_body)
+                # Xử lý tail text sau element (text node sau element)
+                if child.tail:
+                    tail_text = child.tail.strip()
+                    if tail_text and len(tail_text) > 0:
+                        content_parts.append(tail_text)
+        
+        # Process root element
+        process_element(tree)
+        
+        # Nếu không có content, return None
+        if not content_parts:
+            return None
+        
+        # Kết hợp content parts
+        content_text = "\n\n".join(content_parts)
         
         # Làm sạch content: loại bỏ các dòng trống liên tiếp
         if content_text:
-            # Loại bỏ các khoảng trắng thừa trong mỗi dòng (nhưng giữ nguyên cấu trúc paragraphs)
+            # Loại bỏ các khoảng trắng thừa trong mỗi dòng
             lines = content_text.split('\n')
             cleaned_lines = []
             prev_empty = False
             for line in lines:
-                # Loại bỏ khoảng trắng thừa trong dòng nhưng giữ nguyên nếu là dòng trống
                 cleaned_line = re.sub(r'\s+', ' ', line.strip()) if line.strip() else ''
                 if cleaned_line:
                     cleaned_lines.append(cleaned_line)
                     prev_empty = False
                 elif not prev_empty:
-                    # Chỉ thêm một dòng trống nếu trước đó không phải dòng trống
                     cleaned_lines.append('')
                     prev_empty = True
             
@@ -224,7 +253,11 @@ class TechCrunchDetailSpider(scrapy.Spider):
             # Loại bỏ các dòng trống thừa (3+ dòng trống liên tiếp)
             content_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', content_text)
         
-        return content_text if content_text and len(content_text) > 50 else None
+        if not content_text or len(content_text) < 50:
+            return None
+        
+        # Trả về tuple (content, images)
+        return (content_text, images if images else None)
     
     def _extract_authors(self, response):
         """Extract danh sách tác giả"""
@@ -346,42 +379,4 @@ class TechCrunchDetailSpider(scrapy.Spider):
         
         return tags if tags else None
     
-    def _extract_images(self, response):
-        """Extract danh sách URLs hình ảnh"""
-        images = []
-        
-        # Strategy 1: Tìm images trong main content
-        img_selectors = [
-            "article .article-content img::attr(src)",
-            "article .entry-content img::attr(src)",
-            "article img::attr(src)",
-            "main img::attr(src)",
-            "div[class*='article-content'] img::attr(src)",
-        ]
-        
-        for selector in img_selectors:
-            img_urls = response.css(selector).getall()
-            if img_urls:
-                for img_url in img_urls:
-                    if img_url:
-                        full_url = response.urljoin(img_url)
-                        if full_url not in images:
-                            images.append(full_url)
-                break
-        
-        # Strategy 2: Tìm Open Graph image
-        og_image = response.css("meta[property='og:image']::attr(content)").get()
-        if og_image:
-            full_url = response.urljoin(og_image)
-            if full_url not in images:
-                images.insert(0, full_url)  # Thêm vào đầu danh sách
-        
-        # Strategy 3: Tìm featured image
-        featured_image = response.css("meta[property='og:image:secure_url']::attr(content), meta[property='og:image']::attr(content)").get()
-        if featured_image:
-            full_url = response.urljoin(featured_image)
-            if full_url not in images:
-                images.insert(0, full_url)
-        
-        return images if images else None
 
